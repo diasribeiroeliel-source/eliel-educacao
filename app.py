@@ -394,6 +394,129 @@ def montar_gif(pngs, ms_por_quadro=2500):
     return buf.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# Vídeo vertical (Reels/Instagram) 1080x1920
+# ---------------------------------------------------------------------------
+VID_W, VID_H = 1080, 1920
+
+
+def _fonte(tamanho, negrito=True):
+    from PIL import ImageFont
+    pasta = matplotlib.get_data_path() + "/fonts/ttf/"
+    nome = "DejaVuSans-Bold.ttf" if negrito else "DejaVuSans.ttf"
+    try:
+        return ImageFont.truetype(pasta + nome, tamanho)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _quebra(draw, texto, fonte, largura):
+    linhas, atual = [], ""
+    for palavra in texto.split():
+        teste = f"{atual} {palavra}".strip()
+        if draw.textlength(teste, font=fonte) <= largura:
+            atual = teste
+        else:
+            if atual:
+                linhas.append(atual)
+            atual = palavra
+    if atual:
+        linhas.append(atual)
+    return linhas
+
+
+def quadro_vertical(png_quadro, titulo, legenda, estilo):
+    """Monta um frame 1080x1920: título em cima, quadro no meio, legenda embaixo."""
+    from PIL import ImageDraw
+    t = TEMAS[estilo]
+    fundo = "#1d2a3a" if estilo == "whiteboard" else t["fundo"]
+    img = Image.new("RGB", (VID_W, VID_H), fundo)
+    d = ImageDraw.Draw(img)
+
+    # topo: marca + título
+    d.text((60, 110), "ELIEL ENGENHARIA", font=_fonte(40), fill="#f5c542")
+    f_tit = _fonte(58)
+    y = 180
+    for linha in _quebra(d, titulo, f_tit, VID_W - 120)[:3]:
+        d.text((60, y), linha, font=f_tit, fill="#ffffff")
+        y += 72
+
+    # meio: o quadro desenhado
+    q = Image.open(io.BytesIO(png_quadro)).convert("RGB")
+    larg = VID_W - 60
+    alt = int(q.height * larg / q.width)
+    q = q.resize((larg, alt), Image.LANCZOS)
+    topo = max(y + 40, (VID_H - alt) // 2 - 80)
+    img.paste(q, (30, topo))
+
+    # embaixo: legenda
+    if legenda:
+        f_leg = _fonte(60)
+        linhas = _quebra(d, legenda, f_leg, VID_W - 140)[:3]
+        y = VID_H - 420
+        for linha in linhas:
+            w = d.textlength(linha, font=f_leg)
+            x = (VID_W - w) / 2
+            d.text((x, y), linha, font=f_leg, fill="#ffffff",
+                   stroke_width=6, stroke_fill="#000000")
+            y += 80
+
+    d.text((60, VID_H - 120), "CREA-PA 152029785-8 · Tucumã - PA", font=_fonte(32, False),
+           fill="#9aa7b4")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def gerar_video(quadros_png, blocos, duracao, audio, titulo, estilo):
+    """MP4 vertical: os quadros se dividem igualmente no tempo da narração,
+    e a legenda muda conforme o tempo de cada frase."""
+    import os
+    import subprocess
+    import tempfile
+
+    import imageio_ffmpeg
+
+    n = len(quadros_png)
+    fatia = duracao / n
+    # cortes de tempo: troca de quadro e troca de legenda
+    cortes = sorted({0.0, duracao, *[i * fatia for i in range(n)],
+                     *[a for _, a, _ in blocos if a < duracao],
+                     *[b for _, _, b in blocos if b < duracao]})
+    with tempfile.TemporaryDirectory() as tmp:
+        lista = []
+        for i in range(len(cortes) - 1):
+            t0, t1 = cortes[i], cortes[i + 1]
+            if t1 - t0 < 0.02:
+                continue
+            meio = (t0 + t1) / 2
+            idx = min(int(meio // fatia), n - 1)
+            leg = next((txt for txt, a, b in blocos if a <= meio < b), "")
+            caminho = os.path.join(tmp, f"f{i:04d}.png")
+            with open(caminho, "wb") as f:
+                f.write(quadro_vertical(quadros_png[idx], titulo, leg, estilo))
+            lista.append((caminho, t1 - t0))
+        with open(os.path.join(tmp, "lista.txt"), "w") as f:
+            for caminho, dur in lista:
+                f.write(f"file '{caminho}'\nduration {dur:.3f}\n")
+            f.write(f"file '{lista[-1][0]}'\n")
+        saida = os.path.join(tmp, "aula.mp4")
+        cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error",
+               "-f", "concat", "-safe", "0", "-i", os.path.join(tmp, "lista.txt")]
+        if audio:
+            mp3 = os.path.join(tmp, "narracao.mp3")
+            with open(mp3, "wb") as f:
+                f.write(audio)
+            cmd += ["-i", mp3, "-c:a", "aac", "-b:a", "160k", "-shortest"]
+        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-r", "30",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart", saida]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr[-500:])
+        with open(saida, "rb") as f:
+            return f.read()
+
+
 def nome_arquivo(titulo):
     base = re.sub(r"[^a-zA-Z0-9]+", "_", titulo.lower()).strip("_")
     return base[:50] or "aula"
@@ -578,12 +701,11 @@ def main():
                 st.error(f"Falha ao gerar o áudio: {e}")
                 return
 
+        blocos = legendas_do_alinhamento(alin) if alin else legendas_estimadas(roteiro)
         if gerar_legenda:
-            progresso.progress(40, text="Montando legendas…")
-            blocos = legendas_do_alinhamento(alin) if alin else legendas_estimadas(roteiro)
             arquivos[f"{base}_legendas.srt"] = montar_srt(blocos).encode("utf-8")
 
-        progresso.progress(55, text="Desenhando os quadros passo a passo…")
+        progresso.progress(40, text="Desenhando os quadros passo a passo…")
         quadros = quadros_do_roteiro(roteiro, estilo, titulo_aula)
         desenhos = []
         if sapata:
@@ -593,35 +715,56 @@ def main():
         todos = quadros + desenhos
         for i, png in enumerate(todos, 1):
             arquivos[f"quadros/{i:02d}.png"] = png
-
-        progresso.progress(80, text="Animando a sequência…")
         arquivos[f"{base}_animacao.gif"] = montar_gif(todos)
         arquivos[f"{base}_roteiro.txt"] = roteiro.encode("utf-8")
+
+        progresso.progress(60, text="Montando o vídeo para o Instagram…")
+        duracao = (alin["character_end_times_seconds"][-1] + 0.6) if alin else blocos[-1][2] + 0.6
+        video = None
+        try:
+            video = gerar_video(todos, blocos if gerar_legenda else [], duracao, audio,
+                                titulo_aula, estilo)
+            arquivos[f"{base}_reels.mp4"] = video
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Não consegui montar o vídeo: {e}")
 
         zbuf = io.BytesIO()
         with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
             for nome, dados in arquivos.items():
                 z.writestr(nome, dados)
         progresso.progress(100, text="Pronto!")
-
         st.balloons()
-        st.markdown("### ✅ Aula pronta para exportação")
-        if audio:
-            st.audio(audio, format="audio/mp3")
-        st.image(arquivos[f"{base}_animacao.gif"], caption="Sequência dos quadros")
-        if sapata:
+        # guarda o resultado para não sumir quando clicar em baixar
+        st.session_state.resultado = dict(
+            base=base, audio=audio, video=video, gif=arquivos[f"{base}_animacao.gif"],
+            memorial=memorial(sapata) if sapata else None, zip=zbuf.getvalue())
+
+    res = st.session_state.get("resultado")
+    if res:
+        st.markdown("### ✅ Aula pronta")
+        if res["video"]:
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                st.video(res["video"])
+            with c2:
+                st.markdown("**Vídeo vertical pronto para Reels** (1080×1920, com sua "
+                            "voz e legendas na tela).")
+                st.download_button("📥 Baixar VÍDEO para o Instagram (.mp4)",
+                                   data=res["video"], file_name=f"{res['base']}_reels.mp4",
+                                   mime="video/mp4", type="primary",
+                                   use_container_width=True, key="baixar_video")
+                st.caption("No iPhone: toque em baixar, abra o arquivo em Arquivos → "
+                           "compartilhar → Salvar vídeo. Ele vai para a Galeria.")
+        if res["audio"]:
+            st.audio(res["audio"], format="audio/mp3")
+        if res["memorial"]:
             with st.expander("Memorial de cálculo"):
-                st.code(memorial(sapata), language=None)
-        st.download_button(
-            "📥 Baixar pacote da aula (.zip)",
-            data=zbuf.getvalue(),
-            file_name=f"{base}.zip",
-            mime="application/zip",
-            type="primary",
-        )
-        st.caption("O pacote traz: narração .mp3, legendas .srt, quadros .png, "
-                   "animação .gif, roteiro e memorial. Monte o vídeo no CapCut ou "
-                   "Premiere: importe os quadros, o áudio e as legendas.")
+                st.code(res["memorial"], language=None)
+        st.download_button("📦 Baixar pacote completo (.zip)", data=res["zip"],
+                           file_name=f"{res['base']}.zip", mime="application/zip",
+                           key="baixar_zip")
+        st.caption("O pacote traz: vídeo .mp4, narração .mp3, legendas .srt, quadros .png, "
+                   "animação .gif, roteiro e memorial.")
 
     st.markdown("---")
     st.caption(RODAPE)
