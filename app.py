@@ -57,7 +57,11 @@ st.set_page_config(
 def listar_vozes(api_key: str):
     r = requests.get(f"{ELEVEN_URL}/voices", headers={"xi-api-key": api_key}, timeout=30)
     r.raise_for_status()
-    return [(v["name"], v["voice_id"]) for v in r.json().get("voices", [])]
+    vozes = r.json().get("voices", [])
+    # vozes clonadas (suas) primeiro, depois as padrão do site
+    vozes.sort(key=lambda v: v.get("category") == "premade")
+    return [(v["name"] + ("" if v.get("category") == "premade" else "  ⭐ sua voz"),
+             v["voice_id"]) for v in vozes]
 
 
 def gerar_audio(api_key, voice_id, texto, estabilidade, clareza, estilo_fala, modelo):
@@ -452,6 +456,8 @@ def main():
         api_key = ""
     else:
         try:
+            if st.sidebar.button("🔄 Atualizar lista de vozes", key="recarregar_vozes"):
+                st.session_state.pop("_key", None)
             if st.session_state.get("_key") != api_key:
                 st.session_state.vozes = listar_vozes(api_key)
                 st.session_state._key = api_key
