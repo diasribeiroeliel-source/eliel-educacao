@@ -597,7 +597,18 @@ def main():
                 st.sidebar.warning("Nenhuma voz encontrada nessa conta.")
         except requests.HTTPError as e:
             st.session_state.pop("_key", None)
-            if e.response is not None and e.response.status_code == 401:
+            detalhe = ""
+            try:
+                det = e.response.json().get("detail", {})
+                detalhe = det.get("status", "") if isinstance(det, dict) else str(det)
+            except Exception:  # noqa: BLE001
+                pass
+            fim = api_key[-4:]
+            if detalhe == "invalid_api_key":
+                st.sidebar.error(f"Chave terminada em …{fim} não existe na ElevenLabs. "
+                                 "Copie de novo a chave inteira (Copy to Clipboard) e cole aqui.")
+            elif e.response is not None and e.response.status_code == 401:
+                st.sidebar.caption(f"Chave terminada em …{fim} · motivo: {detalhe or '401'}")
                 st.sidebar.error(
                     "A ElevenLabs recusou essa chave. Crie uma chave nova em "
                     "elevenlabs.io → Developers → API Keys, com a opção "
