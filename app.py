@@ -665,6 +665,13 @@ def main():
         incluir_cotas = st.checkbox("Incluir cotas nos desenhos", value=True)
         gerar_legenda = st.checkbox("Gerar legendas (.srt) para o vídeo", value=True)
         gerar_voz = st.checkbox("Gerar áudio com a voz clonada", value=True)
+        tipo_video = st.radio(
+            "Tipo de vídeo para o Instagram",
+            ["✍️ Quadro branco animado (mão desenhando)", "🖼️ Slides com os desenhos"],
+            key="tipo_video")
+        foto_enviada = st.file_uploader(
+            "Sua foto ou caricatura (aparece num selo redondo no vídeo)",
+            type=["png", "jpg", "jpeg"], key="foto")
 
         if categoria == "Fundações e Concreto Armado":
             with st.expander("📐 Dados da sapata isolada", expanded=True):
@@ -733,8 +740,23 @@ def main():
         duracao = (alin["character_end_times_seconds"][-1] + 0.6) if alin else blocos[-1][2] + 0.6
         video = None
         try:
-            video = gerar_video(todos, blocos if gerar_legenda else [], duracao, audio,
-                                titulo_aula, estilo)
+            if tipo_video.startswith("✍️"):
+                import os
+
+                import quadro_video as qv
+                foto = foto_enviada.getvalue() if foto_enviada else None
+                padrao = os.path.join(os.path.dirname(os.path.abspath(__file__)), "foto_eliel.jpg")
+                if foto is None and os.path.exists(padrao):
+                    with open(padrao, "rb") as f:
+                        foto = f.read()
+                cenas = qv.cenas_sapata(sapata) if sapata else qv.cenas_texto(roteiro, titulo_aula)
+                video = qv.gerar_video_quadro(
+                    cenas, blocos if gerar_legenda else [], duracao, audio, titulo_aula, foto,
+                    progresso=lambda p: progresso.progress(
+                        60 + int(35 * p), text="Desenhando no quadro… ✍️"))
+            else:
+                video = gerar_video(todos, blocos if gerar_legenda else [], duracao, audio,
+                                    titulo_aula, estilo)
             arquivos[f"{base}_reels.mp4"] = video
         except Exception as e:  # noqa: BLE001
             st.error(f"Não consegui montar o vídeo: {e}")

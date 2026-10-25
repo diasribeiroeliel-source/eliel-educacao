@@ -3,3 +3,4 @@ requests
 matplotlib
 pillow
 imageio-ffmpeg
+fonttools

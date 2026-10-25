@@ -10,3 +10,7 @@ ELIEL ENGENHARIA - EDUCAÇÃO NA CONSTRUÇÃO
 Para usar no celular: publique grátis no Streamlit Community Cloud
 (share.streamlit.io) a partir de um repositório no GitHub e coloque a chave
 em Settings > Secrets. Nunca suba o secrets.toml para o GitHub.
+
+CRÉDITOS
+- Mão com caneta: Twemoji (jdecked/twemoji), licença CC-BY 4.0.
+- Letra de mão: Patrick Hand (Google Fonts), licença SIL OFL.
