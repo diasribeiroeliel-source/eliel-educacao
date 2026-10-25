@@ -424,8 +424,6 @@ def liberado() -> bool:
 
 
 def main():
-    if not liberado():
-        return
     st.title("🏗️ Eliel Engenharia & Arquitetura LTDA")
     st.subheader("Módulo: Engenharia e Educação na Construção")
     st.markdown("---")
