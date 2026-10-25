@@ -1,0 +1,12 @@
+ELIEL ENGENHARIA - EDUCAÇÃO NA CONSTRUÇÃO
+
+1) Instale o Python 3.10 ou mais novo.
+2) Nesta pasta, rode:   pip install -r requirements.txt
+3) Inicie o app:        streamlit run app.py
+4) Na barra lateral, cole a chave da ElevenLabs e escolha a sua voz.
+   (Opcional) Renomeie .streamlit/secrets.toml.exemplo para secrets.toml
+   com a chave e o voice ID para não digitar toda vez.
+
+Para usar no celular: publique grátis no Streamlit Community Cloud
+(share.streamlit.io) a partir de um repositório no GitHub e coloque a chave
+em Settings > Secrets. Nunca suba o secrets.toml para o GitHub.
