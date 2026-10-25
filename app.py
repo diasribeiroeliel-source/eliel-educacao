@@ -413,7 +413,10 @@ def liberado() -> bool:
     st.title("🏗️ Eliel Engenharia & Arquitetura LTDA")
     digitada = st.text_input("Senha de acesso", type="password")
     if digitada:
-        if digitada == senha:
+        def limpa(s):  # ignora espaços e maiúsculas/minúsculas
+            return "".join(s.split()).lower()
+
+        if limpa(digitada) == limpa(senha):
             st.session_state.liberado = True
             st.rerun()
         st.error("Senha incorreta.")
