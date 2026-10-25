@@ -400,9 +400,13 @@ def nome_arquivo(titulo):
 # ---------------------------------------------------------------------------
 def segredo(nome):
     try:
-        return st.secrets.get(nome, "")
+        valor = str(st.secrets.get(nome, "")).strip()
     except Exception:  # noqa: BLE001  (sem secrets.toml)
         return ""
+    # ignora textos de exemplo que ficaram no Secrets
+    if valor.upper().startswith(("COLE_", "ESCOLHA_", "SUA_", "ID_DA_")):
+        return ""
+    return valor
 
 
 def liberado() -> bool:
@@ -434,14 +438,21 @@ def main():
 
     st.sidebar.markdown("### 🔑 ElevenLabs")
     chave_padrao = segredo("ELEVENLABS_API_KEY")
-    api_key = st.sidebar.text_input("Chave da API", value=chave_padrao, type="password",
-                                    help="Fica só nesta sessão. Para não digitar sempre, "
-                                         "coloque em .streamlit/secrets.toml")
+    api_key = st.sidebar.text_input(
+        "Chave da API (começa com sk_)", value=chave_padrao, type="password",
+        key="api_key", help="Copie em elevenlabs.io → Developers → API Keys.",
+    ).strip()
     voz_padrao = segredo("ELEVENLABS_VOICE_ID")
     voice_id = voz_padrao
-    if api_key:
+    if not api_key:
+        st.sidebar.info("Cole a sua chave da ElevenLabs acima e aperte Enter.")
+    elif not api_key.startswith("sk_"):
+        st.sidebar.error("Essa não parece uma chave da ElevenLabs. Ela começa com sk_. "
+                         "Apague o campo e cole a chave copiada do site.")
+        api_key = ""
+    else:
         try:
-            if "vozes" not in st.session_state or st.session_state.get("_key") != api_key:
+            if st.session_state.get("_key") != api_key:
                 st.session_state.vozes = listar_vozes(api_key)
                 st.session_state._key = api_key
             vozes = st.session_state.vozes
@@ -449,13 +460,25 @@ def main():
                 nomes = [n for n, _ in vozes]
                 ids = [i for _, i in vozes]
                 idx = ids.index(voz_padrao) if voz_padrao in ids else 0
-                escolha = st.sidebar.selectbox("Sua voz clonada", nomes, index=idx)
+                escolha = st.sidebar.selectbox("Sua voz clonada", nomes, index=idx,
+                                               key="voz_escolhida")
                 voice_id = ids[nomes.index(escolha)]
+                st.sidebar.success("Chave aceita ✔")
             else:
                 st.sidebar.warning("Nenhuma voz encontrada nessa conta.")
+        except requests.HTTPError as e:
+            st.session_state.pop("_key", None)
+            if e.response is not None and e.response.status_code == 401:
+                st.sidebar.error(
+                    "A ElevenLabs recusou essa chave. Crie uma chave nova em "
+                    "elevenlabs.io → Developers → API Keys, com a opção "
+                    "“Restrict key” DESLIGADA, e cole aqui.")
+            else:
+                st.sidebar.error(f"Erro ao falar com a ElevenLabs: {e}")
+            voice_id = ""
         except Exception as e:  # noqa: BLE001
-            st.sidebar.error(f"Não consegui listar as vozes: {e}")
-            voice_id = st.sidebar.text_input("Voice ID (manual)", value=voz_padrao)
+            st.sidebar.error(f"Erro ao falar com a ElevenLabs: {e}")
+            voice_id = ""
 
     modelo = st.sidebar.selectbox(
         "Modelo de voz",
@@ -529,8 +552,9 @@ def main():
             st.warning("Escreva o roteiro antes de gerar a aula.")
             return
         if gerar_voz and (not api_key or not voice_id):
-            st.warning("Informe a chave da ElevenLabs e escolha a voz na barra lateral, "
-                       "ou desmarque “Gerar áudio com a voz clonada”.")
+            st.warning("A voz ainda não está pronta: a chave da ElevenLabs precisa ser "
+                       "aceita na barra lateral (aparece “Chave aceita ✔”). Ou desmarque "
+                       "“Gerar áudio com a voz clonada” para gerar só desenhos e legendas.")
             return
 
         arquivos = {}
